@@ -1,20 +1,60 @@
 import os.path
+# import sys
 from datetime import datetime
 import time
 import cv2
 import os
 import boto3
 
-
 local_path = os.getcwd()
 local_path = os.path.join(local_path, '../media')
+
+MEDIA_PATH = local_path
 
 
 def url_compose(camera):
     """ Compose URL string for the camera """
     # rtsp://88.204.57.242:5533/user=admin&password=******&channel=1&stream=1.sdp?
-    url: str = f'rtsp://{camera.ip_addr}:{camera.port}/user={camera.login}&password={camera.password}&channel=1&stream=1.sdp?'
+    url: str = f'rtsp://{camera.ip_addr}:{camera.port}/user={camera.login}&password={camera.password}&channel=1&stream=0.sdp?'
     return url
+
+
+def save_dsk(path_, name_, img_):
+    try:
+        save_path = os.path.join(MEDIA_PATH, path_)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path, 0o775)
+            print(f'Created directory  {save_path}')
+        save_file = os.path.join(MEDIA_PATH, path_, name_)
+        print(f'Saved FILE -> {name_} PATH -> {save_path}, ')
+        cv2.imwrite(save_file, img_)  # if img is numpy array
+        return save_file
+
+    except Exception as error_conn:
+        print('!!! save_dsk can''t save image')
+        print(error_conn)
+
+
+def save_s3(path_, name_, img_):
+    try:
+        s3_aws = boto3.client(
+            service_name='s3',
+            # region_name='ru-1',
+            # aws_access_key_id='61972_tl ',
+            # aws_secret_access_key='5r_)3uFQj>',
+            # endpoint_url='https://s3.selcdn.ru'
+        )
+
+        save_file = save_dsk(path_, name_, img_)
+        s3_object_fullname = os.path.join(path_, name_)
+        s3_aws.upload_file(save_file, 'og-firstbucket', s3_object_fullname)
+        print(f'Saved OBJECT -> {s3_object_fullname} from PATH -> {save_file}, ')
+
+        return s3_object_fullname
+
+    except Exception as error_conn:
+        print('!!! save_dsk can''t save image')
+        print(error_conn)
 
 
 class Camera:
@@ -56,8 +96,10 @@ camera02.port = '5533'
 camera02.cam_url = url_compose(camera02)
 
 
+
+
 class snapshot_rtsp(Camera):
-    def __init__(self, cam):
+    def __init__(self, cam) -> object:
         Camera.__init__(self)
         self.cam_url = url_compose(cam)
         self.name = cam.name
@@ -80,54 +122,23 @@ class snapshot_movie(Movie):
     pass
 
 
-def context_path(context, cam_name):
-    dt = datetime.today().strftime("%y%m%d")
-    tm = datetime.today().strftime("%H%M%S")
-    s_path = os.path.join(context, cam_name, (dt + '_' + cam_name))
-    if not os.path.exists(s_path):
-        os.makedirs(s_path, 0o775)
-    im_fl = os.path.join(s_path, (dt + '-' + tm + '-' + cam_name + ".jpg"))
-    print(f'context_path {im_fl}')
-    return im_fl
+class snapshot:
+    def __init__(self, source):
+        self.source = source
+        self.dt = datetime.today().strftime("%y%m%d")
+        self.tm = datetime.today().strftime("%H%M%S")
 
-
-def save_dsk(img, cam_name):
-    try:
-        im_fl = os.path.join(local_path, context_path("images", cam_name))
-        print(im_fl)
-        cv2.imwrite(im_fl, img)  # if img is numpy array
-        print(f'save_dsk {im_fl}')
-        return im_fl
-
-    except Exception as error_conn:
-        print('!!! save_dsk can''t save image')
-        print(error_conn)
-
-
-def save_s3(img, cam_name):
-    try:
-        s3_aws = boto3.client(
-            service_name='s3',
-            # region_name='ru-1',
-            # aws_access_key_id='61972_tl ',
-            # aws_secret_access_key='5r_)3uFQj>',
-            # endpoint_url='https://s3.selcdn.ru'
-        )
-
-        im_fl = save_dsk(img, cam_name)
-        im_fl_s3 = context_path("images", cam_name)
-        s3_aws.upload_file(im_fl, 'og-firstbucket', im_fl_s3)
-
-        return im_fl
-
-    except Exception as error_conn:
-        print('!!! save_dsk can''t save image')
-        print(error_conn)
+    def rtsp(self):
+        name_jpeg = self.dt + '-' + self.tm + '-' + self.source.name + ".jpg"
+        path_jpeg = os.path.join('images', self.source.name, (self.dt + '_' + self.source.name))
+        object_content = snapshot_rtsp.get_img(self.source)
+        return path_jpeg, name_jpeg, object_content
 
 
 def main():
-    img01 = snapshot_rtsp.get_img(camera01)
-    file01 = save_s3(img01, camera01.name)
+    snapshot01 = snapshot(camera01)
+    path_jpeg, name_jpeg, object_content = snapshot01.rtsp()
+    save_dsk(path_jpeg, name_jpeg, object_content)
 
 
 if __name__ == '__main__':
